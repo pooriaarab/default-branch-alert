@@ -34,7 +34,7 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: pooriaarab/default-branch-alert@main
+      - uses: pooriaarab/default-branch-alert@v1.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           status: ${{ needs.deploy.result }}
@@ -52,7 +52,7 @@ make sure that job already carries (or gets) `issues: write`:
 ```yaml
       - name: Report default-branch status
         if: always() && (success() || failure()) && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        uses: pooriaarab/default-branch-alert@main
+        uses: pooriaarab/default-branch-alert@v1.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           status: ${{ job.status }}
@@ -79,6 +79,36 @@ race into duplicate issues.
 
 ## Versioning
 
-Consumers should pin a tag (e.g. `@v1`) once one exists rather than tracking
-`@main` directly, the same convention used by
-[`pooriaarab/vibecodereview`](https://github.com/pooriaarab/vibecodereview).
+Consumers pin an **immutable** tag — `@v1.0.0` today — never `@main` and
+never a moving alias like `@v1`. **Tags here never move.** A fix or change
+ships as a new tag (`v1.0.1`, `v1.1.0`, ...); the old tag keeps pointing at
+the old commit forever.
+
+This is a deliberate departure from
+[`pooriaarab/vibecodereview`](https://github.com/pooriaarab/vibecodereview),
+which uses a moving `@v1` — and that's the right call *for that action*, not
+a mistake to copy here. The difference is the consequence of a bad
+propagation, not a general preference for pinning:
+
+- A moving tag auto-propagates the instant it moves. The only gate is that a
+  human chose to move it — not that anyone reviewed the effect on any
+  specific consumer.
+- For a PR reviewer bot, that's an acceptable trade: high call volume, fast
+  feedback, and the worst case is a bad review comment somebody notices
+  within the hour.
+- For this action, it inverts. It fires only on failure, so a regression can
+  sit undetected for weeks, and the failure mode is that **every consumer's
+  alerting goes quietly wrong at once** — a broken alerter manufacturing
+  false confidence, which is worse than no alerter at all. (This isn't
+  hypothetical: two real bugs shipped here during initial testing, and both
+  looked fine until they hit a live runner.)
+
+An immutable tag costs slower propagation of a real fix — each consumer
+needs its own small bump PR to pick one up. For something this
+infrequent-but-high-stakes, that's a good trade: it turns an invisible,
+fleet-wide blast radius into a mandatory, reviewable touchpoint per repo.
+
+If you're adding a new shared action and wondering which convention to
+follow: ask what a bad, unreviewed change would cost. High call volume and
+fast feedback → a moving tag is fine. Low call volume and a failure mode
+that's silent until it matters → pin immutable tags instead.
