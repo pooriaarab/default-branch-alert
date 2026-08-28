@@ -16,18 +16,40 @@ nobody reads.
 
 ## Usage
 
-Add one step to the end of a job that deploys, migrates, or otherwise gates
-the default branch. It needs `issues: write` on that job only:
+Add a **separate job** that `needs:` the job you're tracking, rather than a
+step inside it. That way this never touches the permissions or steps of a
+job that already works — it's purely additive:
 
 ```yaml
 jobs:
   deploy:
-    permissions:
-      contents: read
-      issues: write   # required for default-branch-alert
     steps:
-      - # ...your existing deploy steps...
+      - # ...your existing deploy steps, unchanged...
 
+  report-default-branch-status:
+    name: Report default-branch status
+    needs: [deploy]
+    if: always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: pooriaarab/default-branch-alert@main
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ needs.deploy.result }}
+```
+
+`needs.<job>.result` is one of `success`, `failure`, `cancelled`, or
+`skipped` — feed it straight through. `cancelled` and `skipped` are already
+no-ops inside the action, and `if: always()` just means this reporting job
+itself always gets a turn to check; it does nothing on either of those two.
+
+If you'd rather not add a job (e.g. a single-job workflow where a separate
+job is overkill), a step at the end of the existing job works too — just
+make sure that job already carries (or gets) `issues: write`:
+
+```yaml
       - name: Report default-branch status
         if: always() && (success() || failure()) && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         uses: pooriaarab/default-branch-alert@main
@@ -35,11 +57,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           status: ${{ job.status }}
 ```
-
-`always() && (success() || failure())` is deliberate: it runs the step on
-both outcomes (so it can create/update on failure *and* close on recovery)
-while excluding `cancelled` and `skipped`, which are neither `success()` nor
-`failure()`.
 
 ## Inputs
 
