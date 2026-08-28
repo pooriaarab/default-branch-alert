@@ -22,21 +22,24 @@ inputs:
       already excludes cancelled/skipped runs and non-default branches.
     required: true
   workflow_name:
-    description: "Identity of the workflow being tracked. Defaults to the running workflow's name."
+    description: >-
+      Identity of the workflow being tracked. Leave unset to use the
+      running workflow's own name (action.yml input defaults can't read the
+      `github` context directly, so this is resolved inside the script).
     required: false
-    default: ${{ github.workflow }}
+    default: ""
   branch:
-    description: "Branch the run happened on. Defaults to the current ref name."
+    description: "Branch the run happened on. Leave unset to use the current ref name."
     required: false
-    default: ${{ github.ref_name }}
+    default: ""
   label:
     description: "Label applied to (and searched on) the tracking issue."
     required: false
     default: "default-branch-failure"
   run_url:
-    description: "URL of the run being reported, linked from the issue/comment."
+    description: "URL of the run being reported, linked from the issue/comment. Leave unset to link the current run."
     required: false
-    default: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    default: ""
 
 runs:
   using: "composite"
@@ -47,10 +50,11 @@ runs:
         github-token: ${{ inputs.github_token }}
         script: |
           const status = `${{ inputs.status }}`;
-          const workflowName = `${{ inputs.workflow_name }}`;
-          const branch = `${{ inputs.branch }}`;
+          const workflowName = `${{ inputs.workflow_name }}` || context.workflow;
+          const branch = `${{ inputs.branch }}` || context.ref.replace(/^refs\/heads\//, "");
           const label = `${{ inputs.label }}`;
-          const runUrl = `${{ inputs.run_url }}`;
+          const runUrl = `${{ inputs.run_url }}` ||
+            `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
 
           if (status !== "failure" && status !== "success") {
             core.info(`status is "${status}" (not failure/success) — nothing to do`);
