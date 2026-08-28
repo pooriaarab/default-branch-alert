@@ -10,16 +10,16 @@ branding:
 inputs:
   github_token:
     description: >-
-      Token used to read/write issues. Pass the workflow's own
-      `${{ github.token }}` (secrets.GITHUB_TOKEN). The calling job needs
-      `permissions: issues: write`.
+      Token used to read/write issues. Pass the workflow's own github.token
+      (secrets.GITHUB_TOKEN). The calling job needs permissions: issues:
+      write.
     required: true
   status:
     description: >-
-      Result of the run being reported. Pass `${{ job.status }}`. Only
-      `success` and `failure` do anything; any other value is a no-op, so it
-      is safe to call this unconditionally as long as the caller's own `if:`
-      already excludes cancelled/skipped runs and non-default branches.
+      Result of the run being reported. Pass job.status. Only success and
+      failure do anything; any other value is a no-op, so it is safe to
+      call this unconditionally as long as the caller's own if: already
+      excludes cancelled/skipped runs and non-default branches.
     required: true
   workflow_name:
     description: >-
