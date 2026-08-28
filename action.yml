@@ -1,0 +1,136 @@
+name: "default-branch-alert"
+description: >-
+  Opens a tracking issue when a default-branch workflow run fails, updates
+  the same issue on repeat failures instead of creating a new one, and
+  closes it the next time that workflow succeeds on the default branch.
+branding:
+  icon: "alert-triangle"
+  color: "red"
+
+inputs:
+  github_token:
+    description: >-
+      Token used to read/write issues. Pass the workflow's own
+      `${{ github.token }}` (secrets.GITHUB_TOKEN). The calling job needs
+      `permissions: issues: write`.
+    required: true
+  status:
+    description: >-
+      Result of the run being reported. Pass `${{ job.status }}`. Only
+      `success` and `failure` do anything; any other value is a no-op, so it
+      is safe to call this unconditionally as long as the caller's own `if:`
+      already excludes cancelled/skipped runs and non-default branches.
+    required: true
+  workflow_name:
+    description: "Identity of the workflow being tracked. Defaults to the running workflow's name."
+    required: false
+    default: ${{ github.workflow }}
+  branch:
+    description: "Branch the run happened on. Defaults to the current ref name."
+    required: false
+    default: ${{ github.ref_name }}
+  label:
+    description: "Label applied to (and searched on) the tracking issue."
+    required: false
+    default: "default-branch-failure"
+  run_url:
+    description: "URL of the run being reported, linked from the issue/comment."
+    required: false
+    default: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Create, update, or close the tracking issue
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const status = `${{ inputs.status }}`;
+          const workflowName = `${{ inputs.workflow_name }}`;
+          const branch = `${{ inputs.branch }}`;
+          const label = `${{ inputs.label }}`;
+          const runUrl = `${{ inputs.run_url }}`;
+
+          if (status !== "failure" && status !== "success") {
+            core.info(`status is "${status}" (not failure/success) — nothing to do`);
+            return;
+          }
+
+          const marker = `<!-- default-branch-alert:${workflowName}:${branch} -->`;
+
+          // Ensure the label exists so listing/filtering by it never 422s on
+          // a repo that has never had a failure yet.
+          try {
+            await github.rest.issues.getLabel({ ...context.repo, name: label });
+          } catch (err) {
+            if (err.status === 404) {
+              await github.rest.issues.createLabel({
+                ...context.repo,
+                name: label,
+                color: "d73a4a",
+                description: "Auto-filed by default-branch-alert",
+              });
+            } else {
+              throw err;
+            }
+          }
+
+          // Find-by-marker, not the search API: listForRepo reads straight
+          // from the DB, so there's no search-index lag to race against.
+          const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+            ...context.repo,
+            state: "open",
+            labels: label,
+            per_page: 100,
+          });
+          const existing = openIssues.find((issue) => issue.body && issue.body.includes(marker));
+
+          if (status === "failure") {
+            if (existing) {
+              core.info(`Commenting on existing issue #${existing.number}`);
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: existing.number,
+                body: `Failed again: ${runUrl}`,
+              });
+            } else {
+              core.info("Creating a new tracking issue");
+              const body = [
+                `**${workflowName}** failed on the default branch (\`${branch}\`).`,
+                "",
+                `Run: ${runUrl}`,
+                "",
+                "This issue stays open and gets a new comment on every repeat",
+                "failure. It closes automatically the next time this workflow",
+                "succeeds on this branch.",
+                "",
+                marker,
+              ].join("\n");
+              await github.rest.issues.create({
+                ...context.repo,
+                title: `CI failure: ${workflowName} on ${branch}`,
+                body,
+                labels: [label],
+              });
+            }
+            return;
+          }
+
+          // status === "success"
+          if (existing) {
+            core.info(`Closing recovered issue #${existing.number}`);
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: existing.number,
+              body: `Resolved by ${runUrl}`,
+            });
+            await github.rest.issues.update({
+              ...context.repo,
+              issue_number: existing.number,
+              state: "closed",
+              state_reason: "completed",
+            });
+          } else {
+            core.info("No open tracking issue for this workflow/branch — nothing to close");
+          }
