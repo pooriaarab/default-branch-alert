@@ -1,5 +1,8 @@
 # AGENTS.md
 
+Before public copy or interface work, read `.agents/brand.md` and
+`.agents/design.md`.
+
 <!-- pr-standards:start -->
 
 ## Pull requests
